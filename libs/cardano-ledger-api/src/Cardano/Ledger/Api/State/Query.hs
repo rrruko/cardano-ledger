@@ -20,6 +20,9 @@ module Cardano.Ledger.Api.State.Query (
   -- * @GetDRepState@
   queryDRepState,
 
+  -- * @GetFullDRepState@
+  queryFullDRepState,
+
   -- * @GetDRepStakeDistr@
   queryDRepStakeDistr,
 
@@ -171,6 +174,22 @@ queryDRepState ::
   Set (Credential 'DRepRole) ->
   Map (Credential 'DRepRole) DRepState
 queryDRepState nes creds
+  | null creds = updateDormantDRepExpiry' vState ^. vsDRepsL
+  | otherwise = updateDormantDRepExpiry' vStateFiltered ^. vsDRepsL
+  where
+    vStateFiltered = vState & vsDRepsL %~ (`Map.restrictKeys` creds)
+    vState = nes ^. nesEsL . esLStateL . lsCertStateL . certVStateL
+    updateDormantDRepExpiry' = updateDormantDRepExpiry (nes ^. nesELL)
+
+-- | Query DRep state.
+queryFullDRepState ::
+  ConwayEraCertState era =>
+  NewEpochState era ->
+  -- | Specify a set of DRep credentials whose state should be returned. When this set is
+  -- empty, states for all of the DReps will be returned.
+  Set (Credential 'DRepRole) ->
+  Map (Credential 'DRepRole) DRepState
+queryFullDRepState nes creds
   | null creds = updateDormantDRepExpiry' vState ^. vsDRepsL
   | otherwise = updateDormantDRepExpiry' vStateFiltered ^. vsDRepsL
   where
