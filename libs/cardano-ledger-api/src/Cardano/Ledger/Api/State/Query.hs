@@ -73,7 +73,7 @@ import Cardano.Ledger.Api.State.Query.CommitteeMembersState (
   MemberStatus (..),
   NextEpochChange (..),
  )
-import Cardano.Ledger.BaseTypes (EpochNo, strictMaybeToMaybe)
+import Cardano.Ledger.BaseTypes (EpochNo(EpochNo), strictMaybeToMaybe)
 import Cardano.Ledger.Coin (Coin (..), CompactForm (..))
 import Cardano.Ledger.Compactible (fromCompact)
 import Cardano.Ledger.Conway.Governance (
@@ -112,12 +112,15 @@ import Cardano.Ledger.UMap (
   UMap,
   dRepMap,
   domRestrictedStakeCredentials,
+  umElemsL,
+  umElemDRepDelegatedReward,
  )
 import Control.Monad (guard)
 import Data.Foldable (foldMap')
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe.Strict (StrictMaybe(SNothing))
 import Data.Sequence (Seq (..))
 import qualified Data.Sequence as Seq
 import Data.Sequence.Strict (StrictSeq (..))
@@ -187,15 +190,42 @@ queryFullDRepState ::
   NewEpochState era ->
   -- | Specify a set of DRep credentials whose state should be returned. When this set is
   -- empty, states for all of the DReps will be returned.
-  Set (Credential 'DRepRole) ->
-  Map (Credential 'DRepRole) DRepState
+  Set DRep ->
+  Map DRep DRepState
 queryFullDRepState nes creds
-  | null creds = updateDormantDRepExpiry' vState ^. vsDRepsL
-  | otherwise = updateDormantDRepExpiry' vStateFiltered ^. vsDRepsL
+  | null creds = f Nothing dState
+  | otherwise = f (Just creds) dState
   where
-    vStateFiltered = vState & vsDRepsL %~ (`Map.restrictKeys` creds)
-    vState = nes ^. nesEsL . esLStateL . lsCertStateL . certVStateL
-    updateDormantDRepExpiry' = updateDormantDRepExpiry (nes ^. nesELL)
+    f :: Maybe (Set DRep) -> DState era -> Map DRep DRepState
+    f restrict ds =
+      Map.foldlWithKey
+        (\m cred umElem ->
+          case umElemDRepDelegatedReward umElem of
+            Just (coin, drep) ->
+              case restrict of
+                Just r | not (Set.member drep r) -> m
+                _ -> Map.insertWith addDRepState drep (toDRepState coin cred) m
+            _ -> m
+        )
+        Map.empty
+        (dsUnified ds ^. umElemsL)
+    addDRepState :: DRepState -> DRepState -> DRepState
+    addDRepState x y =
+      DRepState
+        { drepExpiry = EpochNo 0
+        , drepAnchor = SNothing
+        , drepDeposit = drepDeposit x <> drepDeposit y
+        , drepDelegs = Set.union (drepDelegs x) (drepDelegs y)
+        }
+    toDRepState :: CompactForm Coin -> Credential 'Staking -> DRepState
+    toDRepState coin cred =
+      DRepState
+        { drepExpiry = EpochNo 0
+        , drepAnchor = SNothing
+        , drepDeposit = fromCompact coin
+        , drepDelegs = Set.singleton cred
+        }
+    dState = nes ^. nesEsL . esLStateL . lsCertStateL . certDStateL
 
 -- | Query DRep stake distribution. Note that this can be an expensive query because there
 -- is a chance that current distribution has not been fully computed yet.
