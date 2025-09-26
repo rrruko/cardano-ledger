@@ -1165,7 +1165,7 @@ trySubmitTx tx = do
     let success = case res' of { Right _ -> True; Left _ -> False }
     let txBytes = serialize (pvMajor protVer) txFixed
     testState <- readIORef globalTestState
-    modifyIORef thisTestTxes (++ [(encCBOR txBytes, success, currentSlotNo)])
+    modifyIORef dumpEvent (++ [EventTransaction (encCBOR txBytes) success currentSlotNo])
     globalStates' <- readIORef globalStates
     when (null globalStates') $
       modifyIORef globalStates (++ [encCBOR oldNES])
@@ -1309,6 +1309,7 @@ passTick = do
   nes <- runImpRule @"TICK" () curNES impLastTick
   impLastTickL += 1
   impNESL .= nes
+  liftIO $ modifyIORef dumpEvent (++ [EventTick])
 
 -- | Runs the TICK rule until the next epoch is reached
 passEpoch ::
@@ -1326,6 +1327,7 @@ passEpoch = do
   logDoc $ "Entering " <> ansiExpr (succ startEpoch)
   tickUntilNewEpoch startEpoch
   gets impNES >>= epochBoundaryCheck preNES
+  liftIO $ modifyIORef dumpEvent (++ [EventPassEpoch])
 
 epochBoundaryCheck ::
   (EraTxOut era, EraGov era, HasCallStack) =>

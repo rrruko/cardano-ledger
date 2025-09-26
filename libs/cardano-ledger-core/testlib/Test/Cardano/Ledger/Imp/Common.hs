@@ -77,9 +77,10 @@ module Test.Cardano.Ledger.Imp.Common (
   lastTestState,
   globalTestState,
   globalStates,
-  thisTestTxes,
+  dumpEvent,
   annotations,
   dumpProtocolVersion,
+  DumpEvent(..),
 )
 where
 
@@ -166,6 +167,7 @@ import Test.Hspec.Core.Spec as X (getSpecDescriptionPath)
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified System.Directory as Directory
+import Cardano.Ledger.Binary.Coders (Decode (..), Encode (..), decode, encode, (!>), (<!))
 
 instance MonadUnliftIO m => MonadUnliftIO (GenT m) where
   withRunInIO inner = GenT $ \qc sz ->
@@ -235,7 +237,7 @@ it s spec = do
     let ts = p ++ [s]
     liftIO $ modifyIORef globalTestState (const ts)
     spec
-    txes <- liftIO $ readIORef thisTestTxes
+    txes <- liftIO $ readIORef dumpEvent
     states <- liftIO $ readIORef globalStates
     notes <- liftIO $ readIORef annotations
     protocolVersion <- liftIO $ readIORef dumpProtocolVersion
@@ -257,7 +259,7 @@ it s spec = do
       (liftIO doDump)
     liftIO $ modifyIORef globalTestState (const [])
     liftIO $ modifyIORef globalStates (const [])
-    liftIO $ modifyIORef thisTestTxes (const [])
+    liftIO $ modifyIORef dumpEvent (const [])
     liftIO $ modifyIORef annotations (const [])
 
 lastTestState :: IORef (Maybe [String])
@@ -269,11 +271,30 @@ globalTestState = unsafePerformIO $ newIORef []
 globalStates :: IORef [Encoding]
 globalStates = unsafePerformIO $ newIORef []
 
-thisTestTxes :: IORef [(Encoding, Bool, SlotNo)]
-thisTestTxes = unsafePerformIO $ newIORef []
+dumpEvent :: IORef [DumpEvent]
+dumpEvent = unsafePerformIO $ newIORef []
 
 annotations :: IORef [String]
 annotations = unsafePerformIO $ newIORef []
 
 dumpProtocolVersion :: IORef Version
 dumpProtocolVersion = unsafePerformIO $ newIORef minBound
+
+data DumpEvent
+  = EventTransaction Encoding Bool SlotNo
+  | EventTick
+  | EventPassEpoch
+
+instance EncCBOR DumpEvent where
+  encCBOR (EventTransaction e b s) =
+    encode $
+      Sum EventTransaction 0
+        !> To e
+        !> To b
+        !> To s
+  encCBOR EventTick =
+    encode $
+      Sum EventTick 1
+  encCBOR EventPassEpoch =
+    encode $
+      Sum EventPassEpoch 2
