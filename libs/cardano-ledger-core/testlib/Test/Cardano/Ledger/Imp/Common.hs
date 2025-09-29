@@ -3,6 +3,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -88,13 +89,11 @@ where
 
 import Cardano.Slotting.Slot (SlotNo (..), EpochNo (..), EpochSize(..))
 import Control.Monad.IO.Class
-import Data.ByteString.Lazy (ByteString)
 import Data.List (intercalate, isInfixOf)
-import Data.Word (Word16)
 import qualified System.Random.Stateful as R
-import Cardano.Ledger.Binary.Encoding (EncCBOR(..), Encoding, serialize)
+import Cardano.Ledger.Binary.Encoding (EncCBOR(..), Encoding, serialize, encodeListLen)
 import Test.Cardano.Ledger.Binary.TreeDiff (expectExprEqualWithMessage)
-import Cardano.Ledger.Binary.Version (Version, mkVersion)
+import Cardano.Ledger.Binary.Version (Version)
 import Test.Cardano.Ledger.Common as X hiding (
   arbitrary,
   assertBool,
@@ -145,9 +144,7 @@ import Test.Cardano.Ledger.Common as X hiding (
   vectorOf,
  )
 import qualified Test.Cardano.Ledger.Common as Common
-import Test.Cardano.Ledger.Core.KeyPair (KeyPair (..), mkAddr)
 import Test.ImpSpec (modifyImpInit, withImpInit)
-import qualified Test.ImpSpec as ImpSpec
 import Test.ImpSpec.Expectations.Lifted
 import Test.ImpSpec.Random (
   HasStatefulGen (..),
@@ -169,7 +166,12 @@ import Test.Hspec.Core.Spec as X (getSpecDescriptionPath)
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified System.Directory as Directory
-import Cardano.Ledger.Binary.Coders (Decode (..), Encode (..), decode, encode, (!>), (<!))
+import Cardano.Ledger.Binary.Coders (Encode (..), encode, (!>))
+
+import Data.Word (Word64)
+import Cardano.Slotting.Time (SystemStart(..))
+import Cardano.Ledger.BaseTypes (ActiveSlotCoeff, mkActiveSlotCoeff, Globals(..), Network)
+import Data.Time.Clock (UTCTime(..))
 
 instance MonadUnliftIO m => MonadUnliftIO (GenT m) where
   withRunInIO inner = GenT $ \qc sz ->
@@ -241,7 +243,6 @@ it s spec = do
     spec
     txes <- liftIO $ readIORef dumpEvent
     states <- liftIO $ readIORef globalStates
-    notes <- liftIO $ readIORef annotations
     protocolVersion <- liftIO $ readIORef dumpProtocolVersion
     ic <- liftIO $ readIORef initialConfig
     let doDump = do
@@ -252,7 +253,7 @@ it s spec = do
           BS.writeFile
             ("dump/" ++ dirPath ++ "/" ++ file)
             (BS.toStrict $ (serialize protocolVersion
-              ( ic 
+              ( ic
               , if null states then encCBOR ([] :: [()]) else head states
               , if null states then encCBOR ([] :: [()]) else last states
               , txes
@@ -285,7 +286,25 @@ dumpProtocolVersion :: IORef Version
 dumpProtocolVersion = unsafePerformIO $ newIORef minBound
 
 initialConfig :: IORef InitialConfig
-initialConfig = unsafePerformIO $ newIORef $ InitialConfig 0 (EpochNo 0) (EpochSize 0)
+initialConfig = unsafePerformIO $ newIORef $
+  InitialConfig
+    { initialSlot = 0
+    , initialEpoch = EpochNo 0
+    , epochLength = EpochSize 0
+    , icGlobals = Globals
+        { epochInfo = undefined
+        , slotsPerKESPeriod = 0
+        , stabilityWindow = 0
+        , randomnessStabilisationWindow = 0
+        , securityParameter = 0
+        , maxKESEvo = 0
+        , quorum = 0
+        , maxLovelaceSupply = 0
+        , activeSlotCoeff = mkActiveSlotCoeff minBound
+        , networkId = minBound
+        , systemStart = SystemStart (UTCTime (toEnum 0) 0)
+        }
+    }
 
 data DumpEvent
   = EventTransaction Encoding Bool SlotNo
@@ -306,12 +325,28 @@ instance EncCBOR DumpEvent where
     encode $
       Sum EventPassEpoch 2
 
+-- Modified represntation of globals that is CBOR-serializable
 data InitialConfig
   = InitialConfig
-    { initialSlot :: SlotNo 
+    { initialSlot :: SlotNo
     , initialEpoch :: EpochNo
-    , epochLength :: EpochSize 
+    , epochLength :: EpochSize
+    , icGlobals :: Globals
     }
 
 instance EncCBOR InitialConfig where
-  encCBOR (InitialConfig s e l) = encode $ Rec InitialConfig !> To s !> To e !> To l
+  encCBOR (InitialConfig {..}) =
+    encodeListLen 13 <>
+    encCBOR initialSlot <>
+    encCBOR initialEpoch <>
+    encCBOR epochLength <>
+    encCBOR (slotsPerKESPeriod icGlobals) <>
+    encCBOR (stabilityWindow icGlobals) <>
+    encCBOR (randomnessStabilisationWindow icGlobals) <>
+    encCBOR (securityParameter icGlobals) <>
+    encCBOR (maxKESEvo icGlobals) <>
+    encCBOR (quorum icGlobals) <>
+    encCBOR (maxLovelaceSupply icGlobals) <>
+    encCBOR (activeSlotCoeff icGlobals) <>
+    encCBOR (networkId icGlobals) <>
+    encCBOR (systemStart icGlobals)

@@ -343,6 +343,7 @@ instance ShelleyEraImp era => ImpSpec (LedgerSpec era) where
         { initialSlot = slotNo
         , initialEpoch = epochNo
         , epochLength = epochLength
+        , icGlobals = globals
         }
     passTick
 
