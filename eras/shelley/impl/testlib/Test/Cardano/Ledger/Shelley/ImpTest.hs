@@ -216,7 +216,7 @@ import Cardano.Ledger.Shelley.Scripts (
   pattern RequireSignature,
  )
 import Cardano.Ledger.Shelley.Translation (toFromByronTranslationContext)
-import Cardano.Ledger.Slot (epochInfoFirst, getTheSlotOfNoReturn)
+import Cardano.Ledger.Slot (epochInfoFirst, epochInfoSize, getTheSlotOfNoReturn)
 import Cardano.Ledger.Tools (
   calcMinFeeTxNativeScriptWits,
   setMinCoinTxOut,
@@ -333,7 +333,18 @@ instance ShelleyEraImp era => ImpSpec (LedgerSpec era) where
   -- step of `era` initialization, because on the very first TICK of an era the
   -- `futurePParams` are applied and the epoch number is updated to the first epoch
   -- number of the current era
-  impPrepAction = passTick
+  impPrepAction = do
+    slotNo <- gets impLastTick
+    epochNo <- getsNES nesELL
+    globals <- use impGlobalsL
+    let epochLength = epochInfoSize (epochInfoPure globals) epochNo 
+    liftIO . modifyIORef initialConfig . const $
+      InitialConfig
+        { initialSlot = slotNo
+        , initialEpoch = epochNo
+        , epochLength = epochLength
+        }
+    passTick
 
 data SomeSTSEvent era
   = forall (rule :: Symbol).

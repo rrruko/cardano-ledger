@@ -80,11 +80,13 @@ module Test.Cardano.Ledger.Imp.Common (
   dumpEvent,
   annotations,
   dumpProtocolVersion,
-  DumpEvent(..),
+  DumpEvent (..),
+  InitialConfig (..),
+  initialConfig
 )
 where
 
-import Cardano.Slotting.Slot (SlotNo (..))
+import Cardano.Slotting.Slot (SlotNo (..), EpochNo (..), EpochSize(..))
 import Control.Monad.IO.Class
 import Data.ByteString.Lazy (ByteString)
 import Data.List (intercalate, isInfixOf)
@@ -241,6 +243,7 @@ it s spec = do
     states <- liftIO $ readIORef globalStates
     notes <- liftIO $ readIORef annotations
     protocolVersion <- liftIO $ readIORef dumpProtocolVersion
+    ic <- liftIO $ readIORef initialConfig
     let doDump = do
           let sanitize = map $ \c -> if c == '/' then '-' else c
           let dirPath = intercalate "/" $ map sanitize (init ts)
@@ -249,7 +252,8 @@ it s spec = do
           BS.writeFile
             ("dump/" ++ dirPath ++ "/" ++ file)
             (BS.toStrict $ (serialize protocolVersion
-              ( if null states then encCBOR ([] :: [()]) else head states
+              ( ic 
+              , if null states then encCBOR ([] :: [()]) else head states
               , if null states then encCBOR ([] :: [()]) else last states
               , txes
               , T.pack (dirPath ++ "/" ++ file)
@@ -280,6 +284,9 @@ annotations = unsafePerformIO $ newIORef []
 dumpProtocolVersion :: IORef Version
 dumpProtocolVersion = unsafePerformIO $ newIORef minBound
 
+initialConfig :: IORef InitialConfig
+initialConfig = unsafePerformIO $ newIORef $ InitialConfig 0 (EpochNo 0) (EpochSize 0)
+
 data DumpEvent
   = EventTransaction Encoding Bool SlotNo
   | EventTick
@@ -298,3 +305,13 @@ instance EncCBOR DumpEvent where
   encCBOR EventPassEpoch =
     encode $
       Sum EventPassEpoch 2
+
+data InitialConfig
+  = InitialConfig
+    { initialSlot :: SlotNo 
+    , initialEpoch :: EpochNo
+    , epochLength :: EpochSize 
+    }
+
+instance EncCBOR InitialConfig where
+  encCBOR (InitialConfig s e l) = encode $ Rec InitialConfig !> To s !> To e !> To l
