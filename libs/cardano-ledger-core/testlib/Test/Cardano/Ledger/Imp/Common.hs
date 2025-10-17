@@ -241,7 +241,7 @@ it s spec = do
     let ts = p ++ [s]
     liftIO $ modifyIORef globalTestState (const ts)
     spec
-    txes <- liftIO $ readIORef dumpEvent
+    txes <- liftIO $ deduplicate <$> readIORef dumpEvent
     states <- liftIO $ readIORef globalStates
     protocolVersion <- liftIO $ readIORef dumpProtocolVersion
     ic <- liftIO $ readIORef initialConfig
@@ -308,8 +308,15 @@ initialConfig = unsafePerformIO $ newIORef $
 
 data DumpEvent
   = EventTransaction Encoding Bool SlotNo
-  | EventTick
-  | EventPassEpoch
+  | EventPassTick Int
+  | EventPassEpoch Int
+
+-- Merge sequential passTick and passEpoch events
+deduplicate :: [DumpEvent] -> [DumpEvent]
+deduplicate ((EventPassTick x):(EventPassTick y):zs) = deduplicate (EventPassTick (x + y) : zs)
+deduplicate ((EventPassEpoch x):(EventPassEpoch y):zs) = deduplicate (EventPassEpoch (x + y) : zs)
+deduplicate (x:xs) = x : deduplicate xs
+deduplicate [] = []
 
 instance EncCBOR DumpEvent where
   encCBOR (EventTransaction e b s) =
@@ -318,12 +325,14 @@ instance EncCBOR DumpEvent where
         !> To e
         !> To b
         !> To s
-  encCBOR EventTick =
+  encCBOR (EventPassTick n) =
     encode $
-      Sum EventTick 1
-  encCBOR EventPassEpoch =
+      Sum EventPassTick 1
+        !> To n
+  encCBOR (EventPassEpoch n) =
     encode $
       Sum EventPassEpoch 2
+        !> To n
 
 -- Modified represntation of globals that is CBOR-serializable
 data InitialConfig

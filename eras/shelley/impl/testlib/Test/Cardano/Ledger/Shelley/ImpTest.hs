@@ -1321,7 +1321,7 @@ passTick = do
   nes <- runImpRule @"TICK" () curNES impLastTick
   impLastTickL += 1
   impNESL .= nes
-  liftIO $ modifyIORef dumpEvent (++ [EventTick])
+  liftIO $ modifyIORef dumpEvent (++ [EventPassTick 1])
 
 -- | Runs the TICK rule until the next epoch is reached
 passEpoch ::
@@ -1339,7 +1339,7 @@ passEpoch = do
   logDoc $ "Entering " <> ansiExpr (succ startEpoch)
   tickUntilNewEpoch startEpoch
   gets impNES >>= epochBoundaryCheck preNES
-  liftIO $ modifyIORef dumpEvent (++ [EventPassEpoch])
+  liftIO $ modifyIORef dumpEvent (++ [EventPassEpoch 1])
 
 epochBoundaryCheck ::
   (EraTxOut era, EraGov era, HasCallStack) =>
